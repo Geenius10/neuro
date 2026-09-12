@@ -8,10 +8,10 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
 
 const defaults={
- profile:{sport:"Noch nicht gewählt",priorities:["Fokus","Selbstvertrauen"]},
+ profile:{sport:"Fußball",priorities:["Fokus","Selbstvertrauen"],position:"Zentrales Mittelfeld"},
  checks:[], preparations:[], reflections:[], sessions:[],
  customGoals:[], customCue:"Nächste Aktion.",
- weeklyPlan:null, dailyPlans:[], activeBlock:null, blockHistory:[]
+ weeklyPlan:null, weeklyRhythm:{1:"training",2:"training",3:"rest",4:"training",5:"rest",6:"match",0:"rest"}, dailyPlans:[], activeBlock:null, blockHistory:[]
 };
 let state=load();
 let nav="today", modal=null, draft=null;
@@ -20,9 +20,9 @@ function cloneDefaults(){return JSON.parse(JSON.stringify(defaults))}
 function load(){
  try{
    const current=JSON.parse(localStorage.getItem(KEY)||"null");
-   if(current){const base=cloneDefaults();return {...base,...current,profile:{...base.profile,...(current.profile||{})},dailyPlans:current.dailyPlans||[],activeBlock:current.activeBlock||null,blockHistory:current.blockHistory||[]}}
+   if(current){const base=cloneDefaults();return {...base,...current,profile:{...base.profile,...(current.profile||{})},dailyPlans:current.dailyPlans||[],activeBlock:current.activeBlock||null,blockHistory:current.blockHistory||[],weeklyRhythm:{...base.weeklyRhythm,...(current.weeklyRhythm||{})}}}
    const old=JSON.parse(localStorage.getItem("mentaledge.v6")||"null");
-   if(old){const base=cloneDefaults();return {...base,...old,profile:{...base.profile,...(old.profile||{})},dailyPlans:[],activeBlock:null,blockHistory:[]}}
+   if(old){const base=cloneDefaults();return {...base,...old,profile:{...base.profile,...(old.profile||{})},dailyPlans:[],activeBlock:null,blockHistory:[],weeklyRhythm:{...base.weeklyRhythm,...(old.weeklyRhythm||{})}}}
  }catch(e){console.warn("MentalEdge state reset",e)}
  return cloneDefaults()
 }
@@ -59,6 +59,26 @@ const sportProfiles={
  "Noch nicht gewählt":{group:"generic",label:"dein Sport",action:"Aktion",start:"Beginn",goal:["Bei der aktuellen Aufgabe bleiben","Nach Fehlern direkt neu ausrichten","Klare Körpersprache halten","Meinen Cue konsequent nutzen"]}
 };
 function sportContext(){return sportProfiles[state.profile.sport]||sportProfiles["Andere"]}
+const footballPositionTips={
+ "Torwart":"Nach eigener Aktion sofort wieder Raum, Mitspieler und nächste Spieleröffnung scannen.",
+ "Innenverteidigung":"Nach Fehler oder Ballverlust zuerst Tiefe, Gegenspieler und Absicherung neu ordnen.",
+ "Außenverteidigung":"Nach Umschaltmoment zuerst Ball, Tiefe und direkten Gegenspieler erfassen.",
+ "Zentrales Mittelfeld":"Vor der nächsten Ballaktion Schulterblick: Raum, Gegnerdruck, nächste Anschlussoption.",
+ "Flügel":"Nach misslungener Aktion sofort Breite/Tiefe und nächste 1-gegen-1- oder Laufoption aufnehmen.",
+ "Sturm":"Nach vergebener Chance sofort lösen, neu positionieren und die nächste Abschlussaktion verlangen."
+};
+function footballTransferTip(){return state.profile.sport==="Fußball"?(footballPositionTips[state.profile.position]||footballPositionTips["Zentrales Mittelfeld"]):"Nimm deinen Cue in die nächste reale Sportaktion mit."}
+function weekdayKey(date=new Date()){return date.getDay()}
+const DAY_TYPES={training:"Trainingstag",match:"Spieltag",rest:"Freier Tag"};
+function plannedDayType(date=new Date()){return state.weeklyRhythm?.[weekdayKey(date)]||"rest"}
+function todayDayType(){return todayCheck()?.dayType||plannedDayType()}
+function dayTypeLabel(v){return DAY_TYPES[v]||DAY_TYPES.rest}
+function dayTypeBadge(v){return v==="match"?"SPIELTAG":v==="training"?"TRAININGSTAG":"FREIER TAG"}
+function recentDayTypes(n=7){return state.checks.slice(-n).map(x=>x.dayType||"unknown")}
+function consecutiveFootballDays(){let n=0;for(let i=state.checks.length-1;i>=0;i--){const t=state.checks[i].dayType;if(t==="training"||t==="match")n++;else break}return n}
+function yesterdayKey(){const d=new Date();d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`}
+function yesterdayWasMatch(){return state.checks.some(x=>x.day===yesterdayKey()&&x.dayType==="match")||state.reflections.some(x=>x.day===yesterdayKey()&&x.context==="match")}
+function weekRhythmSummary(){const names=[[1,"Mo"],[2,"Di"],[3,"Mi"],[4,"Do"],[5,"Fr"],[6,"Sa"],[0,"So"]];return names.map(([k,n])=>`${n} ${state.weeklyRhythm?.[k]==="match"?"Spiel":state.weeklyRhythm?.[k]==="training"?"Training":"frei"}`).join(" · ")}
 
 const sportExerciseText={
  team:{
@@ -209,15 +229,127 @@ exercises.push(
   steps:["Ausgangsposition einnehmen","Einmal bewusst ausatmen","wichtigsten Reiz ansehen","Cue setzen","Aktion starten"]}
 );
 
+// Football expansion: unique drills across three progression stages.
+exercises.push(
+ {id:"focus-scan",skill:"focus",title:"Vororientierung",minutes:4,evidence:"mindfulness",desc:"Fußballspezifisch scannen: vor der Ballaktion relevante Räume, Gegner und Anschlussoptionen priorisieren.",kind:"spotlight",
+  scenes:[
+   ["Du bist im Zentrum anspielbar.",["Trainerbank","Gegnerdruck im Rücken","letzte Aktion","Publikum"],1],
+   ["Der Ball läuft auf deine Seite.",["freie Anschlussoption","Spielstand","Fehler von vorhin","Gegnerreklamation"],0],
+   ["Umschaltmoment nach Ballgewinn.",["erste Vorwärtsoption","Publikum","Schiedsrichter","eigene Bewertung"],0],
+   ["Du bist kurz ballfern.",["Gegenspieler + Raum","letzter Pass","Trainerlautstärke","Ergebnis"],0]
+  ]},
+ {id:"focus-interruption",skill:"focus",title:"Unterbrechung → Fokus",minutes:4,evidence:"mindfulness",desc:"Nach einer künstlichen Ablenkung sofort die nächste spielrelevante Information auswählen.",kind:"quiz",
+  rounds:[
+   ["Trainer ruft während des Umschaltens deinen Namen.",["Zum Trainer schauen","Ball, Raum und direkte Aufgabe erfassen","Über den Ton nachdenken"],1],
+   ["Ein Gegner provoziert nach einem Foul.",["Antworten","Abstand herstellen und nächste Standardsituation lesen","Beweisen, dass es dich nicht stört"],1],
+   ["Du hörst von außen eine taktische Information.",["Nur die konkrete Information filtern und weiterspielen","Alles gleichzeitig analysieren","Spiel anhalten"],0],
+   ["Nach kurzer Behandlung geht es sofort weiter.",["Letzte Szene rekonstruieren","Position, Gegner, Ball neu erfassen","Erst körperlich testen"],1],
+   ["Publikum reagiert laut auf deine Aktion.",["Reaktion prüfen","Nächste Aufgabe aufnehmen","Aktion innerlich verteidigen"],1]
+  ]},
+ {id:"focus-pressure",skill:"focus",title:"Fokus unter Matchdruck",minutes:5,evidence:"mindfulness",desc:"Relevante Information trotz Spielstand, Zeitdruck und Außenreizen auswählen.",kind:"spotlight",
+  scenes:[
+   ["88. Minute, knappe Führung.",["Restzeit","Ball + nächste Passoption","Publikum","möglicher Endstand"],1],
+   ["Du kommst neu ins Spiel.",["Fehler vermeiden","erste konkrete Aufgabe","Trainerbewertung","Spielstand allein"],1],
+   ["Nach zwei eigenen Fehlern kommt der Ball wieder.",["Ball, Gegnerdruck, Anschluss","letzte Fehler","Mitspielerreaktion","Auswechslung"],0],
+   ["Gegner presst extrem hoch.",["freie Räume und erste Option","Risiko eines Fehlers","Trainer","Publikum"],0],
+   ["Letzte Standardsituation gegen euch.",["Zuordnung + Ball","möglicher Gegentreffer","Zeit","Schiedsrichter"],0]
+  ]},
+
+ {id:"confidence-recommit",skill:"confidence",title:"Nach Fehlern recommitten",minutes:4,evidence:"selftalk",desc:"Nach Unsicherheit wieder dieselbe klare Entscheidungsqualität herstellen.",kind:"decision",
+  rounds:[
+   ["Dein erster vertikaler Pass wird abgefangen.",["Nur noch quer spielen","Nächste passende vertikale Option wieder klar spielen","Sofort Risiko erhöhen"],1],
+   ["Du verlierst ein 1-gegen-1.",["Zweikämpfe meiden","Beim nächsten passenden Duell wieder committed handeln","Revanche erzwingen"],1],
+   ["Eine Hereingabe misslingt.",["Keine mehr versuchen","Nächste passende Situation wieder sauber ausführen","Härter erzwingen"],1],
+   ["Du vergibst eine Chance.",["Abschlüsse vermeiden","Bei nächster Chance wieder klar abschließen","Alles allein lösen"],1]
+  ]},
+ {id:"confidence-pressure",skill:"confidence",title:"Commitment unter Druck",minutes:5,evidence:"selftalk",desc:"In druckvollen Spielsituationen zwischen passiv, überhastet und klar committed unterscheiden.",kind:"decision",
+  rounds:[
+   ["Letzte Minuten, du bekommst den Ball unter Druck.",["Sofort loswerden","Vororientierte Option klar ausführen","Spektakuläre Lösung erzwingen"],1],
+   ["Trainer hat gerade einen Fehler kritisiert.",["Nur noch Sicherheit","Nächste trainierte Entscheidung konsequent treffen","Etwas Besonderes beweisen"],1],
+   ["Du bist seit mehreren Minuten kaum am Ball.",["Verstecken","Aktiv anspielbar werden und klar entscheiden","Jeden Ball fordern, egal wo"],1],
+   ["Wichtiger Abschluss.",["Entscheidung wechseln, bis es sicher wirkt","Gewählte Lösung vollständig ausführen","Härter als normal schießen"],1],
+   ["Gegner wirkt dominant.",["Reaktiv werden","Eigene Aufgabe aktiv spielen","Tempo unkontrolliert erhöhen"],1]
+  ]},
+ {id:"confidence-evidence-fast",skill:"confidence",title:"Kompetenz schnell abrufen",minutes:4,evidence:"selftalk",desc:"Echte Kompetenzbelege kurz abrufen und direkt mit der nächsten Handlung verbinden.",kind:"evidence",
+  prompts:["Eine ähnliche Spielsituation, die du bereits sauber gelöst hast.","Eine Fähigkeit, die du dir durch Training erarbeitet hast.","Ein Moment, in dem du nach einem Fehler wieder mutig gespielt hast.","Eine Situation, in der du unter Druck eine klare Entscheidung getroffen hast.","Ein konkreter Trainingsbeleg für deine aktuelle Rolle."]},
+
+ {id:"composure-activation",skill:"composure",title:"Aktivierung einordnen",minutes:4,evidence:"pst",desc:"Nicht jede Nervosität senken: funktionale Aktivierung von echter Übersteuerung unterscheiden.",kind:"decision",
+  rounds:[
+   ["Puls hoch, Gedanken klar, du nimmst viel wahr.",["Sofort beruhigen","Aktivierung akzeptieren und Aufgabe starten","Aktivierung weiter erhöhen"],1],
+   ["Puls hoch, Blick wird eng, Entscheidungen werden hektisch.",["Kurz regulieren und Wahrnehmung wieder öffnen","Einfach schneller handeln","Alles ignorieren"],0],
+   ["Du fühlst dich vor Anpfiff flach und schwer.",["Noch mehr entspannen","Kurz aktivieren: Bewegung, Reiben/Klopfen, klare Startaufgabe","Nur warten"],1],
+   ["Du bist angespannt, spielst aber klar.",["Zustand nicht unnötig verändern","Komplett herunterfahren","Mehr Selbstgespräche hinzufügen"],0]
+  ]},
+ {id:"composure-decision",skill:"composure",title:"Regulieren → entscheiden",minutes:5,evidence:"pst",desc:"Kurze Regulation ist nur der erste Schritt; direkt danach folgt eine Fußballentscheidung.",kind:"decision",
+  rounds:[
+   ["Nach hektischer Phase hast du kurz Spannung gelöst. Gegner presst.",["Weiter auf Körpergefühl achten","Raum scannen und nächste Option wählen","Noch länger regulieren"],1],
+   ["Nach einer Unterbrechung hast du einmal lang ausgeatmet.",["Zur nächsten Aufgabe wechseln","Weiter Atem zählen","Prüfen, ob du jetzt ruhig genug bist"],0],
+   ["Du hast Hände/Schultern gelockert.",["Ball, Gegner, Mitspieler erfassen","Entspannung kontrollieren","Fehler vermeiden"],0],
+   ["Du hast dich bei zu niedriger Aktivierung kurz aktiviert.",["Direkt erste Aufgabe setzen","Noch mehr pushen","Auf Motivation warten"],0]
+  ]},
+ {id:"composure-matchpressure",skill:"composure",title:"Druck funktional halten",minutes:5,evidence:"pst",desc:"Spielstand, Zeit und Bewertung wahrnehmen, ohne die Entscheidungsqualität zu verlieren.",kind:"quiz",
+  rounds:[
+   ["88. Minute, wichtige Führung.",["Bloß keinen Fehler","Wichtigkeit akzeptieren, nächste Aufgabe klein halten","Zeit permanent prüfen"],1],
+   ["Du spielst gegen stärkeren Gegner.",["Tempo des Gegners bewerten","Eigene Aufgabe + relevante Information","Defensiver als trainiert werden"],1],
+   ["Viele Zuschauer, laute Stimmung.",["Stimmung wegdrücken","Außenreiz akzeptieren, Aufmerksamkeit auf Spielinformation","Noch stärker hochfahren"],1],
+   ["Trainer beobachtet dich direkt.",["Bewertung kontrollieren","Kontrollierbare Aktion ausführen","Fehler vermeiden"],1],
+   ["Knapper Rückstand.",["Ergebnis erzwingen","Tempo und Entscheidung an Aufgabe koppeln","Jede Aktion riskanter machen"],1]
+  ]},
+
+ {id:"reset-chain",skill:"reset",title:"Fehlerkette stoppen",minutes:5,evidence:"routines",desc:"Mehrere aufeinanderfolgende Störungen bearbeiten, ohne aus einem Fehler den nächsten entstehen zu lassen.",kind:"quiz",
+  rounds:[
+   ["Fehlpass, direkt danach Kritik eines Mitspielers.",["Rechtfertigen","Eine Info nehmen und nächste defensive Aufgabe","Fehler analysieren"],1],
+   ["Zweikampf verloren, Gegner kontert.",["Ärger zeigen","Sofort Rückweg/Zuordnung aufnehmen","Nächsten Zweikampf erzwingen"],1],
+   ["Chance vergeben, Gegner baut schnell auf.",["Abschluss bewerten","Umschaltaufgabe übernehmen","Hadern"],1],
+   ["Zwei Ballverluste nacheinander.",["Nur noch Sicherheit","Eine technische Info + nächste passende Entscheidung","Mehr Risiko"],1],
+   ["Trainer kritisiert nach Fehler.",["Ton bewerten","Konkrete Information filtern + nächste Aktion","Antworten"],1]
+  ]},
+ {id:"reset-speed",skill:"reset",title:"2-Sekunden-Reset",minutes:4,evidence:"routines",desc:"Den Reset so kurz machen, dass er im Fußball zwischen zwei Aktionen abrufbar bleibt.",kind:"decision",
+  rounds:[
+   ["Ballverlust. Was kommt zuerst?",["Warum analysieren","Eine verwertbare Info + nächste Aufgabe","Mitspielerreaktion prüfen"],1],
+   ["Fehlpass. Nächster Ball ist sofort frei.",["Fehler noch einmal sehen","Neu orientieren und anspielbar werden","Sicherheit suchen"],1],
+   ["Zweikampf verloren. Gegner spielt weiter.",["Gestik","Direkt nächste defensive Aktion","Schiedsrichter"],1],
+   ["Abschluss daneben. Abstoß folgt schnell.",["Chance bewerten","Position für nächste Phase einnehmen","Frust zeigen"],1],
+   ["Taktischer Fehler. Trainer ruft eine Info.",["Ton","Information übernehmen und weiterspielen","Rechtfertigung"],1]
+  ]},
+ {id:"reset-matchpressure",skill:"reset",title:"Reset unter Wettkampfdruck",minutes:5,evidence:"routines",desc:"Reset trotz Spielstand, Bedeutung und Außenreaktionen stabil halten.",kind:"decision",
+  rounds:[
+   ["Eigener Fehler führt spät zu einer Großchance des Gegners.",["Katastrophisieren","Info nehmen, sofort nächste Aufgabe","Fehler wiedergutmachen wollen"],1],
+   ["Nach deinem Fehler wird es von außen laut.",["Reaktionen prüfen","Cue setzen und Spielinformation aufnehmen","Sich rechtfertigen"],1],
+   ["Du hast bereits mehrere Fehler gemacht.",["Fehlerzahl zählen","Nur aktuelle Information verwenden","Alles vermeiden"],1],
+   ["Wichtige Spielsituation direkt nach Fehler.",["Vergangenheit kontrollieren","Nächste Aufgabe vollständig ausführen","Risiko erzwingen"],1],
+   ["Du fürchtest eine Auswechslung.",["Trainer beobachten","Ball/Raum/Aufgabe","Noch sicherer spielen"],1]
+  ]},
+
+ {id:"preparation-distraction",skill:"preparation",title:"Routine trotz Störung",minutes:4,evidence:"routines",desc:"Die eigene Vorbereitungsroutine trotz Außenreiz vollständig und in gleicher Reihenfolge abrufen.",kind:"quiz",
+  rounds:[
+   ["Kurz vor Beginn spricht dich jemand an.",["Routine abbrechen","Nach der Störung beim ersten Routinen-Schritt neu einsetzen","Neue Routine improvisieren"],1],
+   ["Trainer gibt kurz vor Start Zusatzinfo.",["Alles in Routine aufnehmen","Konkrete Info merken, dann Routine unverändert abrufen","Routine verlängern"],1],
+   ["Du merkst Nervosität.",["Warten bis sie weg ist","Routine trotzdem starten","Mehr Schritte hinzufügen"],1],
+   ["Warm-up lief schlecht.",["Routine verändern","Gleiche Startsequenz nutzen","Mehr visualisieren als geplant"],1]
+  ]},
+ {id:"preparation-firstaction",skill:"preparation",title:"Erste Aktion vorbereiten",minutes:5,evidence:"imagery",desc:"Nicht das ganze Spiel kontrollieren: Start, erste Aufgabe und erste typische Aktion präzise vorwegnehmen.",kind:"imagery",
+  situations:["Anpfiff und deine erste klare Positionsaufgabe.","Deine erste mögliche Ballannahme unter Gegnerdruck.","Der erste Umschaltmoment nach Ballverlust.","Die erste Standardsituation, an der du beteiligt bist."]},
+ {id:"preparation-pressure",skill:"preparation",title:"Match-Routine unter Druck",minutes:5,evidence:"routines",desc:"Vor einer bedeutenden Spielsituation Routine, Cue und erste Aufgabe stabil halten.",kind:"decision",
+  rounds:[
+   ["Wichtiges Spiel, deutlich mehr Nervosität als sonst.",["Routine erweitern","Bekannte Routine unverändert durchführen","Auf Ruhe warten"],1],
+   ["Startelf wird kurzfristig bestätigt.",["Alles neu planen","Erste Aufgabe + Cue innerhalb der bekannten Routine setzen","Mehrere Ziele setzen"],1],
+   ["Warm-up wird unterbrochen.",["Routine aufgeben","Kurz neu sammeln und Kernroutine abrufen","Neue Methode testen"],1],
+   ["Gegner wirkt im Warm-up sehr stark.",["Vergleichen","Eigene Startaufgabe und Routine","Taktik spontan ändern"],1],
+   ["Kurz vor Anpfiff hohe Aktivierung.",["Komplett beruhigen","Nur falls nötig kurz regulieren, dann Routine und erste Aufgabe","Mehr pushen"],1]
+  ]}
+);
+
 const blockCurriculum={
- focus:["focus-switch","focus-spotlight","focus-filter","focus-switch","focus-spotlight","focus-filter"],
- confidence:["confidence-choice","confidence-evidence","confidence-talk","confidence-choice","confidence-talk","confidence-evidence"],
- composure:["composure-bodymap","pressure-reg","pressure-reframe","composure-bodymap","pressure-reframe","pressure-reg"],
- reset:["reset-reps","reset-next","thoughts-control","reset-reps","thoughts-story","reset-next"],
- preparation:["preparation-order","routine-reps","imagery-senses","preparation-order","imagery-adversity","routine-reps"]
+ focus:["focus-filter","focus-switch","focus-scan","focus-interruption","focus-spotlight","focus-pressure"],
+ confidence:["confidence-evidence","confidence-choice","confidence-recommit","confidence-evidence-fast","confidence-talk","confidence-pressure"],
+ composure:["composure-activation","composure-bodymap","composure-decision","pressure-reframe","pressure-reg","composure-matchpressure"],
+ reset:["thoughts-story","reset-next","reset-reps","reset-speed","reset-chain","reset-matchpressure"],
+ preparation:["preparation-order","routine-reps","preparation-distraction","preparation-firstaction","imagery-adversity","preparation-pressure"]
 };
 function activeCue(){const b=currentBlock();return b?.cue||"Nächste Aktion."}
 function fixedCueCard(){return `<div class="card cue-locked"><span class="eyebrow">DEIN CUE · BLEIBT GLEICH</span><div class="cue">„${esc(activeCue())}“</div><small>Wir wechseln den Cue nicht innerhalb des Trainingsblocks. So kann er mit der gleichen Handlung verknüpft werden.</small></div>`}
+function stageTrainingNote(){const n=currentBlock().stage||1;const text=n===1?"Saubere Reaktion lernen. Noch kein künstlicher Zeit- oder Ergebnisdruck.":n===2?"Gleiche Fähigkeit unter mehr Ablenkung und schnellerem Abruf trainieren.":"Gleiche Fähigkeit unter spielnaher Bedeutung, Zeit- und Bewertungsdruck stabil halten.";return `<div class="notice"><b>${stageName(n)}</b><br>${text}</div>`}
 
 const targetLibrary={
  focus:{
@@ -280,12 +412,175 @@ function blockExercise(b){
  const id=list[Math.min(list.length-1,stageBase+(done%2))]||list[0];
  return getExercise(id)||exercises[0];
 }
-function stageName(n){return ["","GRUNDLAGE","UNTER ABLENKUNG","SPORTNAHER TRANSFER"][n]||"STABILISIEREN"}
+function stageName(n){return ["","TECHNIK LERNEN","ABLENKUNG & TEMPO","DRUCK & TRANSFER"][n]||"STABILISIEREN"}
 function evaluateBlock(b){const rs=reviewsForBlock(b).slice(-3);if(rs.length<2)return;const good=rs.filter(r=>r.transferRating===3).length,bad=rs.filter(r=>r.transferRating===1).length;if(good>=2){if((b.stage||1)<3)b.stage++;else if(reviewsForBlock(b).filter(r=>r.transferRating===3).length>=3)b.readyForNewGoal=true}else if(bad>=2)b.stage=Math.max(1,(b.stage||1)-1)}
 function startNewBlock(){const old=currentBlock();state.blockHistory.push({...old,ended:todayKey()});const skill=chooseBlockSkill(),pair=targetForSkill(skill);state.activeBlock={id:"b"+Date.now(),skill,goal:pair[0],cue:pair[1],stage:1,started:todayKey(),readyForNewGoal:false};save()}
 function todayBlockSession(){const b=currentBlock();return state.sessions.find(s=>s.blockId===b.id&&s.day===todayKey()&&s.origin==="daily")}
 function reviewTrendSummary(b){const rs=reviewsForBlock(b).slice(-8);if(rs.length<3)return "";const issues={};rs.forEach(r=>{if(r.issue&&r.issue!=="none")issues[r.issue]=(issues[r.issue]||0)+1});const top=Object.entries(issues).sort((a,b)=>b[1]-a[1])[0];if(top&&top[1]>=2)return `Wiederkehrendes Muster: ${issueLabel(top[0])} war ${top[1]}× der Hauptstörfaktor.`;const avg=rs.reduce((s,r)=>s+r.transferRating,0)/rs.length;return avg>=2.6?"Dein Ziel wird über mehrere Einheiten zunehmend stabil umgesetzt.":"Wir sammeln weiter echte Transfers, bevor MentalEdge ein Muster behauptet."}
 function issueLabel(i){return ({outside:"äußere Ablenkung",thoughts:"abschweifende Gedanken",emotion:"Frust / Ärger",pressure:"Druck / Nervosität",doubt:"Selbstzweifel",mistake:"am Fehler festgehalten",hesitation:"Zögern",rush:"Hektik",body:"Körperspannung",forgot:"Routine vergessen",changed:"vom Ablauf abgewichen"})[i]||i}
+
+
+// --- MentalEdge Trainer Engine -------------------------------------------------
+// Alle Zustandsbereiche werden intern auf günstig / mittel / ungünstig normalisiert.
+// Aktivierung wird separat richtungsbezogen gespeichert (zu niedrig ↔ passend ↔ zu hoch).
+// Empfehlungen entstehen aus Mehrvariablen-Mustern, Verlauf, Kontext und Transferdaten.
+const ME_DOMAINS={
+ sleep:{label:"Schlaf",skill:null},body:{label:"körperliche Frische",skill:null},mentalFatigue:{label:"mentale Frische",skill:null},stress:{label:"Stress",skill:"composure"},
+ activation:{label:"Aktivierung",skill:"composure"},focusState:{label:"Fokus",skill:"focus"},motivation:{label:"Motivation",skill:"preparation"},confidenceState:{label:"Selbstvertrauen",skill:"confidence"}
+};
+const ME_INTERVENTIONS={
+ recovery:{title:"Belastung zuerst einordnen",mode:"recovery",minutes:2},
+ maintain:{title:"Schwerpunkt beibehalten",mode:"maintain",minutes:4},
+ light:{title:"Heute kompakter trainieren",mode:"light",minutes:2},
+ focus:{title:"Fokus gezielt belasten",mode:"focus",minutes:4},
+ confidence:{title:"Entscheidungs-Commitment trainieren",mode:"confidence",minutes:4},
+ composure:{title:"Aktivierung funktional regulieren",mode:"composure",minutes:4},
+ activate:{title:"Aktivierung gezielt erhöhen",mode:"activate",minutes:3},
+ reset:{title:"Reset unter Belastung festigen",mode:"reset",minutes:4},
+ preparation:{title:"Vorbereitung stabilisieren",mode:"preparation",minutes:4}
+};
+function meRaw(c,key){
+ if(c?.[key]!=null)return +c[key];
+ const old={body:"body",mentalFatigue:"head",activation:"tension"}[key];
+ return old&&c?.[old]!=null?+c[old]:null;
+}
+function activationDirection(c){
+ const raw=meRaw(c,"activation");
+ if(c?.activationScaleVersion===2){
+   if(raw<=2)return "low";
+   if(raw===3)return "fit";
+   if(raw>=4)return "high";
+ }
+ if(raw===1)return "fit";
+ if(raw===2||raw===3)return "mismatch";
+ return "unknown";
+}
+function meVal(c,key){
+ const raw=meRaw(c,key);
+ if(key==="activation"&&c?.activationScaleVersion===2){
+   if(raw===3)return 1;
+   if(raw===2||raw===4)return 2;
+   if(raw===1||raw===5)return 3;
+   return 2;
+ }
+ if(raw!=null)return raw;
+ return 2;
+}
+function meRecent(n=28){return state.checks.slice(-n)}
+function meMean(key,n=28){const a=meRecent(n).map(x=>meVal(x,key)).filter(Number.isFinite);return a.length?avg(a):2}
+function meTrend(key){const a=state.checks.slice(-7).map(x=>meVal(x,key)),b=state.checks.slice(-14,-7).map(x=>meVal(x,key));return a.length>=3&&b.length>=3?avg(a)-avg(b):0}
+function meStatus(c,key){
+ const v=meVal(c,key), hist=state.checks.slice(-28,-1).map(x=>meVal(x,key));
+ if(hist.length>=7){const m=avg(hist);return v>=Math.min(3,m+.55)?"bad":v<=Math.max(1,m-.55)?"good":"mid"}
+ return v>=3?"bad":v<=1?"good":"mid";
+}
+function meTransferPattern(){
+ const b=currentBlock(),rs=reviewsForBlock(b).slice(-10),train=rs.filter(x=>x.context==="training"),match=rs.filter(x=>x.context==="match");
+ const rate=a=>a.length?avg(a.map(x=>x.transferRating)):null;
+ return {n:rs.length,trainN:train.length,matchN:match.length,train:rate(train),match:rate(match),pressure:match.length?avg(match.map(x=>x.pressure||2)):null,physicalLoad:rs.length?avg(rs.map(x=>x.physicalLoad||3)):null,mentalLoad:rs.length?avg(rs.map(x=>x.mentalLoad||3)):null};
+}
+function meRulePool(){
+ const R=[];
+ const add=(id,priority,when,rec,why)=>R.push({id,priority,when,rec,why});
+ // Explizite klinisch-konservative Kernregeln.
+ add("global-fatigue",100,s=>s.sleep==="bad"&&s.body==="bad"&&s.mentalFatigue==="bad","recovery","Schlaf, körperliche Frische und mentale Frische sind gleichzeitig auffällig.");
+ add("sleep-body",96,s=>s.sleep==="bad"&&s.body==="bad","recovery","Schlaf und körperliche Frische sind gleichzeitig auffällig.");
+ add("mental-focus-fatigue",94,s=>s.mentalFatigue==="bad"&&s.focusState==="bad","light","Schwächerer Fokus tritt zusammen mit mentaler Ermüdung auf. Fokus wird deshalb heute nicht als isolierte Fähigkeitsschwäche behandelt.");
+ add("motivation-fatigue",92,s=>s.motivation==="bad"&&(s.body==="bad"||s.mentalFatigue==="bad"),"recovery","Niedrige Motivation tritt zusammen mit Ermüdung auf. Belastung wird vor Motivationstraining priorisiert.");
+ add("activation-functional",91,s=>s.activation==="bad"&&s.focusState==="good","maintain","Aktivierung ist auffällig, der Fokus aber funktional. Hohe Aktivierung muss nicht automatisch gesenkt werden.");
+ add("activation-focus",90,s=>s.activation==="bad"&&s.focusState==="bad","composure","Auffällige Aktivierung fällt mit schwächerer Aufmerksamkeitskontrolle zusammen.");
+ add("isolated-focus",82,s=>s.focusState==="bad"&&s.mentalFatigue!=="bad"&&s.body!=="bad","focus","Fokus ist auffällig, ohne dass deutliche mentale oder körperliche Ermüdung das Muster erklärt.");
+ add("isolated-confidence",80,s=>s.confidenceState==="bad"&&s.body!=="bad"&&s.mentalFatigue!=="bad","confidence","Selbstvertrauen ist auffällig, während Ermüdung nicht im Vordergrund steht.");
+ add("stress-focus",79,s=>s.stress==="bad"&&s.focusState==="bad","composure","Erhöhter Stress und schwächerer Fokus treten heute gemeinsam auf.");
+ add("stable",10,s=>Object.values(s).filter(x=>x==="bad").length===0,"maintain","Heute zeigt sich kein dominantes negatives Zustandsmuster.");
+ // Großer kombinatorischer Pool: Paarzusammenhänge. Diese Regeln sind schwächer als Kernregeln.
+ const keys=Object.keys(ME_DOMAINS);
+ for(let i=0;i<keys.length;i++)for(let j=i+1;j<keys.length;j++){
+   const a=keys[i],b=keys[j];
+   add(`pair-${a}-${b}`,55,s=>s[a]==="bad"&&s[b]==="bad",(a==="sleep"||b==="sleep"||a==="body"||b==="body"||a==="mentalFatigue"||b==="mentalFatigue")?"light":(ME_DOMAINS[b].skill||ME_DOMAINS[a].skill||"maintain"),`${ME_DOMAINS[a].label} und ${ME_DOMAINS[b].label} sind gleichzeitig auffällig.`);
+ }
+ // Kontrastregeln: ein auffälliger Bereich bei stabilem Vergleichsbereich.
+ for(let i=0;i<keys.length;i++)for(let j=0;j<keys.length;j++){
+   if(i===j)continue; const a=keys[i],b=keys[j];
+   add(`contrast-${a}-bad-${b}-good`,38,s=>s[a]==="bad"&&s[b]==="good",ME_DOMAINS[a].skill||"maintain",`${ME_DOMAINS[a].label} ist auffällig, während ${ME_DOMAINS[b].label} stabil bleibt.`);
+ }
+ // Dreierkombinationen: nur als Kontext-/Prioritätsverstärker.
+ for(let i=0;i<keys.length;i++)for(let j=i+1;j<keys.length;j++)for(let k=j+1;k<keys.length;k++){
+   const a=keys[i],b=keys[j],c=keys[k];
+   add(`tri-${a}-${b}-${c}`,45,s=>s[a]==="bad"&&s[b]==="bad"&&s[c]==="bad",[a,b,c].some(x=>["sleep","body","mentalFatigue"].includes(x))?"light":(ME_DOMAINS[c].skill||ME_DOMAINS[b].skill||ME_DOMAINS[a].skill||"maintain"),`Mehrfachmuster: ${ME_DOMAINS[a].label}, ${ME_DOMAINS[b].label} und ${ME_DOMAINS[c].label} sind gemeinsam auffällig.`);
+ }
+ return R;
+}
+const ME_RULE_POOL=meRulePool();
+function trainerEngine(c=todayCheck(),context="day"){
+ if(!c)return null;
+ const s={};Object.keys(ME_DOMAINS).forEach(k=>s[k]=meStatus(c,k));
+ const hits=ME_RULE_POOL.filter(r=>r.when(s)).sort((a,b)=>b.priority-a.priority);
+ const t=meTransferPattern(), b=currentBlock(), activationDir=activationDirection(c);
+ let top=hits[0]||{rec:"maintain",why:"Noch kein eindeutiges Mehrvariablen-Muster.",id:"fallback",priority:0};
+ const dayType=c.dayType||plannedDayType();
+ // Aktivierung wird richtungsbezogen behandelt: zu niedrig braucht etwas anderes als zu hoch.
+ if(activationDir==="low"&&s.focusState==="bad"&&top.priority<95)top={id:"activation-low-focus",priority:95,rec:"activate",why:"Deine Aktivierung ist zu niedrig und dein Fokus gleichzeitig schwächer. Heute passt kurzes Aktivieren besser als zusätzliches Beruhigen."};
+ if(activationDir==="high"&&s.focusState==="bad"&&top.priority<95)top={id:"activation-high-focus",priority:95,rec:"composure",why:"Deine Aktivierung ist zu hoch und dein Fokus gleichzeitig schwächer. Eine kurze Regulation soll die Wahrnehmung wieder öffnen – nicht dich maximal beruhigen."};
+ if((activationDir==="low"||activationDir==="high")&&s.focusState==="good"&&top.priority<92)top={id:"activation-functional-directional",priority:92,rec:"maintain",why:`Deine Aktivierung ist ${activationDir==="low"?"niedrig":"hoch"}, dein Fokus aber funktional. MentalEdge verändert den Zustand deshalb nicht automatisch.`};
+ // Tageskontext: gleicher Zustand kann an Spiel-, Trainings- oder freien Tagen etwas anderes bedeuten.
+ if(dayType==="match"&&s.confidenceState==="bad"&&s.body!=="bad"&&top.priority<89)top={id:"match-confidence-context",priority:89,rec:"confidence",why:"Am Spieltag ist dein Selbstvertrauen auffällig, ohne dass deutliche körperliche Ermüdung im Vordergrund steht."};
+ if(dayType==="match"&&s.activation==="bad"&&s.focusState==="bad"&&top.priority<96)top=activationDir==="low"
+   ?{id:"match-low-activation-focus",priority:96,rec:"activate",why:"Am Spieltag treffen zu niedrige Aktivierung und schwächerer Fokus zusammen. MentalEdge priorisiert eine kurze Aktivierung mit klarer erster Fußballaufgabe."}
+   :{id:"match-high-activation-focus",priority:96,rec:"composure",why:"Am Spieltag treffen zu hohe oder unklare Aktivierung und schwächerer Fokus zusammen. Regulation wird direkt mit einer klaren Fußballaufgabe verknüpft."};
+ if(dayType==="training"&&s.focusState==="bad"&&s.body!=="bad"&&s.mentalFatigue!=="bad"&&top.priority<84)top={id:"training-isolated-focus",priority:84,rec:"focus",why:"Am Trainingstag ist dein Fokus auffällig, während körperliche und mentale Frische stabil bleiben."};
+ if(dayType==="rest"&&(s.body==="bad"||s.mentalFatigue==="bad")&&top.priority<88)top={id:"rest-day-fatigue",priority:88,rec:"recovery",why:"Am freien Tag ist Erholung auffällig. MentalEdge priorisiert heute Regeneration statt zusätzlicher mentaler Belastung."};
+ if(consecutiveFootballDays()>=3&&(s.body==="bad"||s.mentalFatigue==="bad")&&top.priority<97)top={id:"dense-football-rhythm",priority:97,rec:"recovery",why:"Mehrere Fußballtage in Folge treffen auf erhöhte körperliche oder mentale Ermüdung. Die heutige Zusatzbelastung wird reduziert."};
+ if(yesterdayWasMatch()&&(s.body==="bad"||s.mentalFatigue==="bad")&&top.priority<97)top={id:"post-match-fatigue",priority:97,rec:"recovery",why:"Am Tag nach einem Spiel sind körperliche oder mentale Ermüdung auffällig. Das wird zuerst als Nachbelastungs-/Erholungskontext behandelt."};
+ // Transfer schlägt Tagesform erst bei ausreichender Wiederholung.
+ if(t.trainN>=3&&t.matchN>=3&&t.train-t.match>=.65){top={id:"transfer-gap",priority:97,rec:b.skill,why:"Dein aktueller Schwerpunkt wird im Training deutlich zuverlässiger umgesetzt als im Wettkampf. Die nächste Progression sollte wettkampfnäher werden."}}
+ else if(t.matchN>=3&&t.pressure>=2.6&&t.match<2.2){top={id:"pressure-transfer",priority:93,rec:"composure",why:"Unter höher wahrgenommenem Wettkampfdruck fällt der Transfer deines aktuellen Schwerpunkts wiederholt ab."}}
+ // 7-Tage-Trends verstärken Recovery-Empfehlung, ohne Kausalität zu behaupten.
+ const fatigueTrend=["sleep","body","mentalFatigue"].filter(k=>meTrend(k)>.35).length;
+ if(fatigueTrend>=2&&top.priority<96)top={id:"fatigue-trend",priority:96,rec:"recovery",why:"Mehrere Erholungs-/Ermüdungswerte haben sich über die letzte Woche ungünstig entwickelt."};
+ const recentReviews=state.reflections.slice(-3);
+ const highLoad=recentReviews.length>=2&&avg(recentReviews.map(x=>Math.max(x.physicalLoad||3,x.mentalLoad||3)))>=4;
+ if(highLoad&&(s.body==="bad"||s.mentalFatigue==="bad")&&top.priority<98)top={id:"load-fatigue-link",priority:98,rec:"recovery",why:"Hohe subjektive Belastung der letzten Einheiten trifft heute auf erhöhte körperliche oder mentale Ermüdung."};
+ const confidence=state.checks.length<5?"STARTPHASE":state.checks.length<14?"HINWEIS":"PERSÖNLICHER VERLAUF";
+ return {states:s,hits: hits.slice(0,6),top,intervention:ME_INTERVENTIONS[top.rec]||ME_INTERVENTIONS.maintain,confidence,ruleCount:ME_RULE_POOL.length,transfer:t,dayType,activationDir};
+}
+function trainerInsight(c=todayCheck()){
+ const r=trainerEngine(c);if(!r)return "";
+ return `<div class="trend-insight"><small>TRAINER-ENGINE · ${r.confidence} · ${dayTypeBadge(r.dayType)}</small><p>${esc(r.top.why)}</p><em>${r.ruleCount} Zusammenhangsregeln · Tagesform + Verlauf + Transfer</em></div>`;
+}
+function rethinkReferral(c=todayCheck()){
+ const r=trainerEngine(c);if(!r)return null;
+ const b=currentBlock(), rs=reviewsForBlock(b);
+ if(r.top.id==="transfer-gap"||r.top.id==="pressure-transfer"||(rs.length>=6&&rs.filter(x=>x.transferRating===1).length>=3))
+   return {app:"MIND",title:"Tiefe Mentalarbeit",text:"Dein aktueller Schwerpunkt zeigt über mehrere reale Transfers noch Instabilität. Eine längere MIND-Einheit kann den Skill systematischer vertiefen."};
+ if(r.top.rec==="focus"&&r.states.body!=="bad"&&r.states.mentalFatigue!=="bad")
+   return {app:"EYE",title:"Visuelle Vorbereitung",text:"Fokus ist heute auffällig, ohne deutliche Ermüdung. Vor Fußball kann eine kurze EYE-Einheit mit Scanning/Peripherie die visuelle Vorbereitung ergänzen."};
+ if(r.activationDir==="low"&&r.states.body!=="bad")
+   return {app:"NEURO",title:"Aktivierung",text:"Deine Aktivierung ist eher zu niedrig. Eine kurze aktivierende NEURO-Einheit kann vor Fußball sinnvoller sein als zusätzliche Entspannung."};
+ if(r.activationDir==="high"&&r.states.focusState==="bad"&&r.states.body!=="bad")
+   return {app:"NEURO",title:"Regulation + Orientierung",text:"Hohe Aktivierung fällt heute mit schwächerem Fokus zusammen. Eine kurze NEURO-Regulation mit anschließender Orientierung kann ergänzen."};
+ return null;
+}
+function renderRethinkReferral(c=todayCheck()){
+ const x=rethinkReferral(c);if(!x)return "";
+ return `<div class="card rethink-ref"><span class="eyebrow">OPTIONAL · RETHINK.-VERBUND</span><h3>${esc(x.app)} · ${esc(x.title)}</h3><p>${esc(x.text)}</p><small>Nur Ergänzung – dein MentalEdge-Schwerpunkt bleibt unverändert.</small></div>`;
+}
+
+function personalPatternSummary(){
+ if(state.checks.length<7)return "MentalEdge sammelt erst eine persönliche Baseline.";
+ if(state.checks.length>=12){
+   let sleepN=0,sleepFocus=0;for(let i=1;i<state.checks.length;i++){const prev=state.checks[i-1],cur=state.checks[i];if(meVal(prev,"sleep")===3){sleepN++;if(meVal(cur,"focusState")===3)sleepFocus++}}
+   if(sleepN>=4&&sleepFocus/sleepN>=.6)return `Zeitversetzter Hinweis: Nach schwächerem Schlaf war dein Fokus am Folgetag in ${sleepFocus} von ${sleepN} vergleichbaren Fällen ebenfalls auffällig.`;
+   let loadN=0,fatigueN=0;state.reflections.forEach(r=>{if(Math.max(r.physicalLoad||0,r.mentalLoad||0)>=4){const d=new Date(r.date);d.setDate(d.getDate()+1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`,c=state.checks.find(x=>x.day===key);if(c){loadN++;if(meVal(c,"body")===3||meVal(c,"mentalFatigue")===3)fatigueN++}}});
+   if(loadN>=4&&fatigueN/loadN>=.6)return `Zeitversetzter Hinweis: Nach hoch belastenden Einheiten war am Folgetag in ${fatigueN} von ${loadN} Fällen körperliche oder mentale Ermüdung auffällig.`;
+ }
+ const recentTypes=recentDayTypes(7),footballDays=recentTypes.filter(x=>x==="training"||x==="match").length;
+ if(footballDays>=5){const tired=state.checks.slice(-7).filter(c=>meVal(c,"body")===3||meVal(c,"mentalFatigue")===3).length;if(tired>=3)return `Wochenrhythmus-Hinweis: ${footballDays} Fußballtage in den letzten 7 Tagen fielen mit ${tired} Tagen erhöhter körperlicher oder mentaler Ermüdung zusammen.`}
+ const bad=[];Object.keys(ME_DOMAINS).forEach(k=>{const d=meTrend(k);if(d>.35)bad.push(ME_DOMAINS[k].label)});
+ if(bad.length)return `7-Tage-Trend: ${bad.slice(0,3).join(", ")} haben sich gegenüber der Vorwoche ungünstig entwickelt.`;
+ return "Die letzten 7 Tage zeigen aktuell keinen deutlichen negativen Mehrtagestrend.";
+}
+// -----------------------------------------------------------------------------
 
 function last(arr,n=1){return arr.slice(-n)}
 function todayCheck(){return state.checks.find(x=>x.day===todayKey())}
@@ -297,8 +592,7 @@ function recommendation(){
  const counts={focus:0,confidence:0,composure:0,reset:0,preparation:0};
  const issueSkill={focus:"focus",confidence:"confidence",pressure:"composure",reset:"reset",thoughts:"reset",emotion:"composure",motivation:"preparation"};
  recent.forEach(r=>{const sk=issueSkill[r.issue||r.limiter];if(sk)counts[sk]++});
- const c=todayCheck();
- if(c){if(c.tension===3)counts.composure+=2;if(c.head===3)counts.focus+=1;if(c.energy===3)counts.preparation+=1}
+
  let skill=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0];
  if(Math.max(...Object.values(counts))<2){
    const map={Fokus:"focus",Selbstvertrauen:"confidence",Druck:"composure",Fehler:"reset",Vorbereitung:"preparation",Grübeln:"reset",Visualisierung:"preparation"};
@@ -318,23 +612,31 @@ function todayRecommendedDone(){return !!dailyPlanForToday()?.completed}
 function dailyExercise(){const p=dailyPlanForToday();return p?getExercise(p.exerciseId):null}
 
 
+function todayTrainingContext(c){
+ const r=trainerEngine(c);
+ return r?r.top.why:"Normale Progression deines bestehenden Schwerpunkts.";
+}
+
 function renderToday(){
  if(state.profile.sport==="Noch nicht gewählt"){
    $("#todayContent").innerHTML=`<div class="hero"><span class="eyebrow">MENTALEDGE</span><h1>Welchen Sport trainierst du?</h1><p>Damit Ziel, Cue und mentale Übungen zu deinem Sport passen.</p><button class="primary full" data-action="edit-sport" style="margin-top:16px">SPORT WÄHLEN →</button></div>`;return
  }
  const b=currentBlock(),p=blockProgress(b),c=todayCheck(),daily=todayBlockSession(),prep=todayPrep(),trend=reviewTrendSummary(b),ex=blockExercise(b);
- const block=`<div class="hero coach-hero"><span class="eyebrow">AKTUELLER SCHWERPUNKT · ${stageName(b.stage||1)}</span><h1>${skills[b.skill].name}</h1><div class="target-box"><small>ZIEL</small><strong>${esc(b.goal)}</strong></div><div class="cue-focus"><small>DEIN CUE · FÜR DIESEN GANZEN BLOCK</small><b>${esc(b.cue)}</b><em>Bleibt gleich, bis dein Ziel wechselt.</em></div><div class="mastery-row"><span>${p.sessions} Mental-Sessions</span><span>${p.transfers} Transfers</span><span>${p.consistent}× konsequent</span></div>${trend?`<div class="trend-insight"><small>MUSTER</small><p>${trend}</p></div>`:""}</div>`;
+ const dayContext=`<div class="card day-context"><span class="eyebrow">${dayTypeBadge(todayDayType())}</span><h3>${dayTypeLabel(todayDayType())}</h3><p class="micro">Plan aus deinem Wochenrhythmus${c?.dayType?" · im Daily Check bestätigt":""}.</p></div>`;
+ const block=`<div class="hero coach-hero"><span class="eyebrow">AKTUELLER SCHWERPUNKT · ${stageName(b.stage||1)}</span><h1>${skills[b.skill].name}</h1><div class="target-box"><small>ZIEL</small><strong>${esc(b.goal)}</strong></div><div class="cue-focus"><small>DEIN CUE · FÜR DIESEN GANZEN BLOCK</small><b>${esc(b.cue)}</b><em>Bleibt gleich, bis dein Ziel wechselt.</em></div><div class="mastery-row"><span>${p.sessions} Mental-Sessions</span><span>${p.transfers} Transfers</span><span>${p.consistent}× konsequent</span></div>${trend?`<div class="trend-insight"><small>TRANSFERMUSTER</small><p>${trend}</p></div>`:""}${c?trainerInsight(c):""}</div>`;
  let action="";
  if(!c){
    action=`<div class="card today-step"><span class="eyebrow">NEUER TAG · FRISCHER CHECK</span><h2>Wie ist dein Zustand heute?</h2><p>Der gestrige Check wird nicht übernommen. Dein bestehendes Ziel bleibt trotzdem bestehen.</p><button class="primary full" data-action="daily-check">CHECK-IN STARTEN →</button></div>`;
  }else if(!daily){
-   action=`<div class="reco-card"><span class="eyebrow">HEUTE · ${stageName(b.stage||1)}</span><h2>${ex.title}</h2><div class="reco-meta">${ex.minutes} Min · ${exerciseRepLabel(ex)}</div><div class="why">${sportWhy(ex)}</div><div class="mini-cue">Cue · <b>${esc(b.cue)}</b></div><button class="primary full" data-action="start-exercise" data-id="${ex.id}" data-origin="daily">SESSION STARTEN →</button></div>`;
+   action=`<div class="reco-card"><span class="eyebrow">HEUTE · ${stageName(b.stage||1)}</span><h2>${ex.title}</h2><div class="reco-meta">${ex.minutes} Min · ${exerciseRepLabel(ex)}</div><div class="why">${todayTrainingContext(c)}</div><div class="mini-cue">Fester Cue · <b>${esc(b.cue)}</b></div><div class="why"><b>Fußballtransfer · ${esc(state.profile.position)}</b><br>${esc(footballTransferTip())}</div><button class="primary full" data-action="start-exercise" data-id="${ex.id}" data-origin="daily">SESSION STARTEN →</button></div>`;
  }else if(!prep){
-   action=`<div class="card today-step"><span class="eyebrow">MENTALTRAINING HEUTE ✓</span><h2>Jetzt im Sport anwenden.</h2><p>Nimm genau dieses Ziel und den Cue mit. Während der Einheit brauchst du die App nicht.</p><div class="button-row"><button class="secondary" data-action="mark-sport" data-context="training">TRAINING</button><button class="secondary" data-action="mark-sport" data-context="match">WETTKAMPF</button></div></div>`;
+   const dt=todayDayType();
+   if(dt==="rest")action=`<div class="card today-step"><span class="eyebrow">MENTAL-SESSION ABGESCHLOSSEN ✓ · FREIER TAG</span><h2>Heute kein Fußballtransfer nötig.</h2><p>Der Schwerpunkt bleibt aktiv. MentalEdge nutzt den freien Tag als Teil deines Wochenrhythmus und prüft morgen neu.</p></div>`;
+   else action=`<div class="card today-step"><span class="eyebrow">MENTAL-SESSION ABGESCHLOSSEN ✓</span><h2>Jetzt ohne Handy in den Fußball.</h2><p>Nimm genau dieses Ziel und den Cue mit. Während Training oder Spiel brauchst du die App nicht.</p><button class="secondary full" data-action="mark-sport" data-context="${dt}">${dt==="match"?"SPIEL STARTET – CUE MITNEHMEN":"TRAINING STARTET – CUE MITNEHMEN"}</button></div>`;
  }else{
    action=`<div class="card today-step"><span class="eyebrow">${prep.context==="match"?"WETTKAMPF":"TRAINING"} · ZIEL AKTIV</span><h3>${esc(b.goal)}</h3><div class="mini-cue">Cue · <b>${esc(b.cue)}</b></div><p>Nach deiner Einheit kurz zurückkommen.</p><button class="primary full" data-action="start-reflection" data-context="${prep.context}">${prep.context==="match"?"WETTKAMPF":"TRAINING"} AUSWERTEN →</button></div>`;
  }
- $("#todayContent").innerHTML=block+action+(b.readyForNewGoal?`<div class="card"><span class="eyebrow">SCHWERPUNKT STABIL</span><h3>Bereit für den nächsten Schwerpunkt.</h3><p>Erst ein neuer Check startet den nächsten Block.</p>${c?`<button class="secondary full" data-action="new-block">NEUES ZIEL FESTLEGEN →</button>`:""}</div>`:"")+`<div class="section-row"><h2>Diese Woche</h2></div>${renderWeekCard()}`;
+ $("#todayContent").innerHTML=dayContext+block+(c?renderRethinkReferral(c):"")+action+(b.readyForNewGoal?`<div class="card"><span class="eyebrow">SCHWERPUNKT STABIL</span><h3>Bereit für den nächsten Schwerpunkt.</h3><p>Erst ein neuer Check startet den nächsten Block.</p>${c?`<button class="secondary full" data-action="new-block">NEUES ZIEL FESTLEGEN →</button>`:""}</div>`:"")+`<div class="section-row"><h2>Diese Woche</h2></div>${renderWeekCard()}`;
 }
 function sportWhy(ex){
  const ctx=sportContext();
@@ -357,7 +659,7 @@ function exerciseRepLabel(ex){
 }
 function renderDoneRecommendation(rec){
  const p=dailyPlanForToday(), s=state.sessions.find(x=>x.date===p?.completedAt)||[...state.sessions].reverse().find(x=>x.exercise===rec?.id&&x.date.slice(0,10)===todayKey()&&x.origin==="daily");
- return `<div class="card"><span class="eyebrow">TAGESZIEL ✓</span><h2>${rec?.title||"Mentaltraining"} abgeschlossen</h2><div class="score-box"><div><small>REPS</small><b>${s?.reps||0}</b></div><div><small>SKILL</small><b>${rec?skills[rec.skill].name:"–"}</b></div></div><p>Für heute ist deine geplante Mental-Session erledigt.</p></div>`;
+ return `<div class="card"><span class="eyebrow">MENTAL-SESSION ✓</span><h2>${rec?.title||"Mentaltraining"} abgeschlossen</h2><div class="score-box"><div><small>REPS</small><b>${s?.reps||0}</b></div><div><small>SKILL</small><b>${rec?skills[rec.skill].name:"–"}</b></div></div><p>Für heute ist deine geplante Mental-Session erledigt.</p></div>`;
 }
 function recommendWhy(skill){
  const map={
@@ -371,7 +673,8 @@ function recommendWhy(skill){
 function renderWeekCard(){
  const since=Date.now()-7*86400000, ss=state.sessions.filter(s=>new Date(s.date).getTime()>=since);
  const reps=ss.reduce((a,b)=>a+(b.reps||0),0), reviews=state.reflections.filter(r=>new Date(r.date).getTime()>=since).length;
- return `<div class="card"><div class="score-box"><div><small>MENTAL-SESSIONS</small><b>${ss.length}</b></div><div><small>REPS</small><b>${reps}</b></div><div><small>REFLEXIONEN</small><b>${reviews}</b></div></div><p class="micro">Fortschritt entsteht über regelmäßige Sessions, Wiederholungen und kurze Reviews.</p></div>`;
+ const types=recentDayTypes(7),footballDays=types.filter(x=>x==="training"||x==="match").length,matches=types.filter(x=>x==="match").length;
+ return `<div class="card"><div class="score-box"><div><small>MENTAL-SESSIONS</small><b>${ss.length}</b></div><div><small>FUSSBALLTAGE</small><b>${footballDays}</b></div><div><small>SPIELE</small><b>${matches}</b></div></div><p class="micro">${esc(personalPatternSummary())}</p><p class="micro">Standardwoche: ${esc(weekRhythmSummary())}</p></div>`;
 }
 
 function renderPractice(){
@@ -391,21 +694,38 @@ function renderInsights(){
  if(rs.length<3)return `<div class="card"><span class="eyebrow">PERSÖNLICHE INSIGHTS</span><h3>Noch Daten sammeln</h3><p>Nach mindestens drei echten Transfers zeigt MentalEdge vorsichtige Muster.</p></div>`;
  const text=reviewTrendSummary(b);return `<div class="card"><span class="eyebrow">AKTUELLER BLOCK · ${rs.length} TRANSFERS</span><h3>${text||"Noch kein klares Muster."}</h3><p class="micro">Beobachtung aus deinen eigenen Einträgen, kein Leistungsdiagnostik-Score.</p></div>`;
 }
+function horizonTrend(days){
+ const recent=state.checks.slice(-days), prev=state.checks.slice(-(days*2),-days);
+ const min=Math.max(3,Math.ceil(days*.35));
+ if(recent.length<min)return {label:`${days} TAGE`,text:"noch zu wenig Daten"};
+ const keys=["sleep","body","mentalFatigue","stress","focusState","motivation","confidenceState"];
+ const r=avg(recent.map(c=>avg(keys.map(k=>meVal(c,k)))));
+ if(prev.length<min)return {label:`${days} TAGE`,text:`Basis ${r.toFixed(1)}/3`};
+ const p=avg(prev.map(c=>avg(keys.map(k=>meVal(c,k))))),d=r-p;
+ return {label:`${days} TAGE`,text:Math.abs(d)<.12?"stabil":d<0?"günstiger":"ungünstiger"};
+}
+function renderHorizonTrends(){
+ const hs=[7,14,28].map(horizonTrend);
+ return `<div class="card"><span class="eyebrow">VERLAUF · SUBJEKTIVER ZUSTAND</span><div class="score-box">${hs.map(x=>`<div><small>${x.label}</small><b class="small-value">${x.text}</b></div>`).join("")}</div><p class="micro">Vergleich mit dem jeweils vorherigen gleich langen Zeitraum, erst bei ausreichenden Einträgen. Kein medizinischer oder Leistungs-Score.</p></div>`;
+}
+
 function renderTrends(){
  const b=state.profile.sport!=="Noch nicht gewählt"?currentBlock():null;if(!b)return `<div class="card"><p>Noch kein Schwerpunkt aktiv.</p></div>`;
  const rs=reviewsForBlock(b),p=blockProgress(b),avgTransfer=rs.length?avg(rs.map(r=>r.transferRating)):null;
- return `<div class="card"><div class="score-box"><div><small>MENTAL-SESSIONS</small><b>${p.sessions}</b></div><div><small>TRANSFERS</small><b>${p.transfers}</b></div><div><small>KONSEQUENT</small><b>${p.consistent}</b></div></div><p class="micro">${avgTransfer?`Durchschnittliche Zielumsetzung: ${avgTransfer.toFixed(1)}/3. `:""}Entscheidend ist die Entwicklung über mehrere Einheiten, nicht ein einzelner Wert.</p></div>`;
+ return `<div class="card"><div class="score-box"><div><small>MENTAL-SESSIONS</small><b>${p.sessions}</b></div><div><small>TRANSFERS</small><b>${p.transfers}</b></div><div><small>KONSEQUENT</small><b>${p.consistent}</b></div></div><p class="micro">${avgTransfer?`Durchschnittliche Zielumsetzung: ${avgTransfer.toFixed(1)}/3. `:""}Entscheidend ist die Entwicklung über mehrere Einheiten, nicht ein einzelner Wert.</p></div>${renderHorizonTrends()}`;
 }
 
 function renderProfile(){
  $("#profileContent").innerHTML=`
  <div class="card">
    <div class="profile-row"><label>SPORTART</label><strong>${esc(state.profile.sport)}</strong><button class="text-btn" data-action="edit-sport">Ändern →</button></div>
+   <div class="profile-row"><label>POSITION / ROLLE</label><strong>${esc(state.profile.position||"Zentrales Mittelfeld")}</strong><button class="text-btn" data-action="edit-position">Ändern →</button></div>
+   <div class="profile-row"><label>WOCHENRHYTHMUS</label><strong>${esc(weekRhythmSummary())}</strong><button class="text-btn" data-action="edit-rhythm">Ändern →</button></div>
    <div class="profile-row"><label>MENTALE SCHWERPUNKTE</label><strong>${esc((state.profile.priorities||[]).join(" · "))}</strong><button class="text-btn" data-action="edit-priorities">Ändern →</button></div>
    <div class="profile-row"><label>PERSÖNLICHER CUE</label><strong>${esc(activeCue())}</strong><button class="text-btn" data-action="edit-cue">Ändern →</button></div>
  </div>
  <div class="card"><span class="eyebrow">SCIENCE</span><h3>Evidence Center</h3><p>Was hinter den Übungen steckt – inklusive Grenzen der Evidenz.</p><button class="secondary full" data-action="open-evidence">WISSENSCHAFT ANSEHEN →</button></div>
- <div class="card"><span class="eyebrow">DATEN</span><p>Alle Daten bleiben lokal in diesem Browser.</p><button class="secondary full" data-action="export-data">DATEN EXPORTIEREN</button></div>
+ <div class="card"><span class="eyebrow">DATEN</span><p>Alle Daten bleiben lokal in diesem Browser. Export dient als Backup; ein Export kann später vollständig wiederhergestellt werden.</p><button class="secondary full" data-action="export-data">DATEN EXPORTIEREN</button><button class="text-btn full" data-action="import-data">BACKUP WIEDERHERSTELLEN →</button></div>
  <div class="notice">Hinweise zu Einsatzbereich, Datenschutz und professioneller Unterstützung findest du im Evidence Center.</div>`;
 }
 
@@ -420,33 +740,48 @@ function renderModal(){
  if(modal.name==="evidence")renderEvidence(body);
  if(modal.name==="journal")renderJournal(body);
  if(modal.name==="sport")renderSport(body);
+ if(modal.name==="position")renderPosition(body);
+ if(modal.name==="rhythm")renderRhythm(body);
  if(modal.name==="priorities")renderPriorities(body);
  if(modal.name==="cue")renderCue(body);
 }
 
 function renderDaily(body){
  const steps=[
-  ["body","Wie fühlt sich dein Körper an?","",["frisch","normal","schwer"]],
-  ["energy","Wie ist deine Energie?","",["voll","okay","leer"]],
-  ["head","Wie ist dein Kopf?","",["ruhig","beschäftigt","voll"]],
-  ["tension","Wie passend ist deine Aktivierung?","",["passend","etwas daneben","deutlich daneben"]]
+  ["dayType","Was steht heute im Fußball an?","MentalEdge ordnet deinen Zustand im Tageskontext ein.",["Trainingstag","Spieltag","Freier Tag"]],
+  ["sleep","Wie war dein Schlaf?","Qualität und Erholung.",["gut","mittel","schlecht"]],
+  ["body","Wie frisch fühlt sich dein Körper an?","Nicht Leistung bewerten – nur deinen aktuellen Zustand.",["frisch","normal","schwer"]],
+  ["mentalFatigue","Wie frisch ist dein Kopf?","Mentale Ermüdung getrennt von Motivation.",["frisch","mittel","müde"]],
+  ["stress","Wie hoch ist dein aktueller Stress?","Allgemeiner wahrgenommener Stress.",["niedrig","mittel","hoch"]],
+  ["activation","Wie ist deine Aktivierung gerade?","Zu niedrig und zu hoch werden getrennt ausgewertet. Ziel ist nicht maximale Ruhe, sondern ein funktionaler Zustand.",["deutlich zu niedrig","etwas zu niedrig","passend","etwas zu hoch","deutlich zu hoch"]],
+  ["focusState","Wie klar ist dein Fokus heute?","Wie leicht kannst du Aufmerksamkeit auf eine Aufgabe richten?",["klar","mittel","schwach"]],
+  ["motivation","Wie ist deine Motivation?","Nicht mit Müdigkeit gleichsetzen.",["gut","mittel","niedrig"]],
+  ["confidenceState","Wie ist dein sportliches Selbstvertrauen heute?","Vertrauen in Entscheidungen und trainierte Fähigkeiten.",["stabil","mittel","niedrig"]]
  ];
- if(!draft)draft={step:0,data:{}};
- const s=steps[draft.step];setProgress(draft.step+1,steps.length);
- body.innerHTML=`<span class="eyebrow">DAILY CHECK · ${draft.step+1}/${steps.length}</span><h1 class="modal-title">${s[1]}</h1>${s[2]?`<p class="modal-sub">${s[2]}</p>`:""}<div class="choices">${s[3].map((x,i)=>`<button class="choice" data-action="daily-value" data-value="${i+1}">${x}</button>`).join("")}</div>`;
+ if(!draft)draft={step:0,data:{dayType:plannedDayType()}};
+ const st=steps[draft.step];setProgress(draft.step+1,steps.length);
+ if(st[0]==="dayType"){
+   const opts=[["training","Trainingstag"],["match","Spieltag"],["rest","Freier Tag"]];
+   body.innerHTML=`<span class="eyebrow">DAILY CHECK · ${draft.step+1}/${steps.length}</span><h1 class="modal-title">${st[1]}</h1><p class="modal-sub">${st[2]}</p><div class="choices">${opts.map(x=>`<button class="choice ${draft.data.dayType===x[0]?"selected":""}" data-action="daily-daytype" data-value="${x[0]}">${x[1]}</button>`).join("")}</div>`;
+   return;
+ }
+ body.innerHTML=`<span class="eyebrow">DAILY CHECK · ${draft.step+1}/${steps.length}</span><h1 class="modal-title">${st[1]}</h1><p class="modal-sub">${st[2]}</p><div class="choices">${st[3].map((x,i)=>`<button class="choice" data-action="daily-value" data-value="${i+1}">${x}</button>`).join("")}</div>`;
 }
 function renderReflectionModal(body){
  if(!draft)return;const b=currentBlock(),match=draft.context==="match",needsDeep=draft.transferRating<3&&draft.issue&&draft.issue!=="none";
- const steps=match?(needsDeep?["goal","pressure","issue","deep","finish"]:["goal","pressure","issue","finish"]):(needsDeep?["goal","issue","deep","finish"]:["goal","issue","finish"]),step=steps[draft.step];setProgress(draft.step+1,steps.length);
- if(step==="goal")body.innerHTML=`<span class="eyebrow">${match?"WETTKAMPF":"TRAINING"} · AUSWERTEN</span><h1 class="modal-title">Wie konsequent hast du dein Ziel umgesetzt?</h1><div class="review-target"><small>ZIEL</small><p>${esc(b.goal)}</p><small>CUE · ${esc(b.cue)}</small></div><div class="choices">${[[1,"selten"],[2,"teilweise"],[3,"konsequent"]].map(x=>`<button class="choice" data-action="review-goal" data-value="${x[0]}">${x[1]}</button>`).join("")}</div>`;
- else if(step==="pressure")body.innerHTML=scalePage("WETTKAMPF · KONTEXT","Wie viel Druck hast du wahrgenommen?","Nur Kontext – keine Leistungsnote.","pressure");
+ const core=match?["goal","pressure","physicalLoad","mentalLoad","issue"]:["goal","physicalLoad","mentalLoad","issue"];
+ const steps=needsDeep?[...core,"deep","finish"]:[...core,"finish"],step=steps[draft.step];setProgress(draft.step+1,steps.length);
+ if(step==="goal")body.innerHTML=`<span class="eyebrow">${match?"WETTKAMPF":"TRAINING"} · TRANSFER</span><h1 class="modal-title">Wie konsequent hast du dein aktuelles Mentalziel umgesetzt?</h1><div class="review-target"><small>ZIEL</small><p>${esc(b.goal)}</p><small>CUE · ${esc(b.cue)}</small></div><div class="choices">${[[1,"selten"],[2,"teilweise"],[3,"konsequent"]].map(x=>`<button class="choice" data-action="review-goal" data-value="${x[0]}">${x[1]}</button>`).join("")}</div>`;
+ else if(step==="pressure")body.innerHTML=scalePage("WETTKAMPF · KONTEXT","Wie hoch war dein wahrgenommener Druck?","Kontext für den Transfer – keine Leistungsnote.","pressure");
+ else if(step==="physicalLoad")body.innerHTML=scalePage(`${match?"WETTKAMPF":"TRAINING"} · BELASTUNG`,`Wie hoch war die körperliche Beanspruchung?`,`Subjektiv von sehr leicht bis sehr hoch.`,"physicalLoad");
+ else if(step==="mentalLoad")body.innerHTML=scalePage(`${match?"WETTKAMPF":"TRAINING"} · MENTALE LAST`,`Wie fordernd war die Einheit mental?`,`Konzentration, Entscheidungen, Druck und mentale Ermüdung zusammen betrachtet.`,"mentalLoad");
  else if(step==="issue"){const opts=issueOptions(b.skill);body.innerHTML=`<span class="eyebrow">KURZ EINORDNEN</span><h1 class="modal-title">Was hat die Umsetzung am ehesten gestört?</h1><p class="modal-sub">Wähle nur den wichtigsten Punkt.</p><div class="choices">${opts.map(x=>`<button class="choice" data-action="review-issue" data-value="${x[0]}">${x[1]}</button>`).join("")}</div>`}
  else if(step==="deep"){const q=adaptiveQuestion(b.skill,draft.issue);if(!q){draft.step++;return renderReflectionModal(body)}body.innerHTML=`<span class="eyebrow">1 ZUSATZFRAGE</span><h1 class="modal-title">${q[0]}</h1><div class="choices">${q[1].map((x,i)=>`<button class="choice" data-action="review-deep" data-value="${i}">${x}</button>`).join("")}</div>`}
- else {const saved=state.reflections.find(r=>r.date===draft.savedDate),rec=saved?.optionalExerciseId?getExercise(saved.optionalExerciseId):null;body.innerHTML=`<span class="eyebrow">GESPEICHERT ✓</span><h1 class="modal-title">${draft.transferRating===3?"Ziel konsequent umgesetzt.":draft.transferRating===2?"Teilweise umgesetzt.":"Transfer heute schwierig."}</h1><div class="card"><small>WAS MENTALLEDGE MITNIMMT</small><p>${draft.transferRating===3?"Der Schwerpunkt wird weiter stabilisiert.":`Der Schwerpunkt bleibt aktiv. Hauptthema: ${issueLabel(draft.issue)}.`}</p></div>${rec?`<div class="card"><span class="eyebrow">OPTIONAL · AUS DIESER AUSWERTUNG</span><h3>${rec.title}</h3><p>${sportWhy(rec)}</p><button class="secondary full" data-action="finish-reflection-and-practice" data-id="${rec.id}" data-ref="${saved.date}">OPTIONAL ÜBEN →</button></div>`:""}<div class="modal-footer"><button class="primary full" data-action="close-modal">FERTIG</button></div>`}
+ else {const saved=state.reflections.find(r=>r.date===draft.savedDate),rec=saved?.optionalExerciseId?getExercise(saved.optionalExerciseId):null;body.innerHTML=`<span class="eyebrow">GESPEICHERT ✓</span><h1 class="modal-title">${draft.transferRating===3?"Mentalziel konsequent umgesetzt.":draft.transferRating===2?"Teilweise umgesetzt.":"Transfer heute schwierig."}</h1><div class="card"><small>WAS MENTALLEDGE MITNIMMT</small><p>${draft.transferRating===3?"Der Schwerpunkt wird weiter stabilisiert.":`Der Schwerpunkt bleibt aktiv. Hauptthema: ${issueLabel(draft.issue)}.`}</p><p class="micro">Körperliche Last ${draft.physicalLoad||"–"}/5 · mentale Last ${draft.mentalLoad||"–"}/5${match?` · Druck ${draft.pressure||"–"}/5`:""}</p></div>${rec?`<div class="card"><span class="eyebrow">OPTIONAL · AUS DIESER AUSWERTUNG</span><h3>${rec.title}</h3><p>${sportWhy(rec)}</p><button class="secondary full" data-action="finish-reflection-and-practice" data-id="${rec.id}" data-ref="${saved.date}">OPTIONAL ÜBEN →</button></div>`:""}<div class="modal-footer"><button class="primary full" data-action="close-modal">FERTIG</button></div>`}
 }
 function saveReflectionFromDraft(){
  if(draft.savedDate)return;const bl=currentBlock(),opt=(draft.transferRating<3||draft.issue!=="none")?exerciseForIssue(draft.issue):null;
- const rec={date:new Date().toISOString(),day:todayKey(),context:draft.context,blockId:bl.id,skill:bl.skill,goal:bl.goal,cue:bl.cue,transferRating:draft.transferRating,pressure:draft.context==="match"?draft.pressure:null,issue:draft.issue||"none",deepAnswer:draft.deepAnswer||null,optionalExerciseId:opt?.id||null,optionalDone:false};
+ const rec={date:new Date().toISOString(),day:todayKey(),context:draft.context,blockId:bl.id,skill:bl.skill,goal:bl.goal,cue:bl.cue,transferRating:draft.transferRating,pressure:draft.context==="match"?draft.pressure:null,physicalLoad:draft.physicalLoad||null,mentalLoad:draft.mentalLoad||null,issue:draft.issue||"none",deepAnswer:draft.deepAnswer||null,optionalExerciseId:opt?.id||null,optionalDone:false};
  state.reflections.push(rec);draft.savedDate=rec.date;const p=state.preparations.find(x=>x.date===draft.prep?.date);if(p)p.reviewed=true;evaluateBlock(bl);save();renderAll();
 }
 function exerciseForIssue(i){
@@ -587,7 +922,7 @@ function renderExercise(body){
  draft.cue=activeCue();
  if(draft.phase==="intro"){
   setProgress(0,1);const plain=exercisePlain(ex),total=exerciseRepLabel(ex);
-  body.innerHTML=`<span class="eyebrow">${skills[ex.skill].icon} ${skills[ex.skill].name.toUpperCase()} · ${stageName(currentBlock().stage||1)}</span><h1 class="modal-title">${ex.title}</h1><p class="modal-sub">${plain[0]}</p>${sportScene(ex)}${visualStrip(plain[1])}${fixedCueCard()}<div class="card"><span class="eyebrow">BEISPIEL AUS DEINEM SPORT</span><p>${sportExample(ex)}</p></div><div class="card"><span class="eyebrow">DIESE ÜBUNG IST ANDERS</span><h3>${total}</h3><p>${exerciseMechanicText(ex)}</p></div><div class="modal-footer"><button class="primary full" data-action="exercise-begin">LOS GEHT'S →</button><button class="text-btn" data-action="exercise-evidence">Warum diese Übung?</button></div>`;return
+  body.innerHTML=`<span class="eyebrow">${skills[ex.skill].icon} ${skills[ex.skill].name.toUpperCase()} · ${stageName(currentBlock().stage||1)}</span><h1 class="modal-title">${ex.title}</h1><p class="modal-sub">${plain[0]}</p>${sportScene(ex)}${stageTrainingNote()}${visualStrip(plain[1])}${fixedCueCard()}<div class="card"><span class="eyebrow">BEISPIEL AUS DEINEM SPORT</span><p>${sportExample(ex)}</p></div><div class="card"><span class="eyebrow">DIESE ÜBUNG IST ANDERS</span><h3>${total}</h3><p>${exerciseMechanicText(ex)}</p></div><div class="modal-footer"><button class="primary full" data-action="exercise-begin">LOS GEHT'S →</button><button class="text-btn" data-action="exercise-evidence">Warum diese Übung?</button></div>`;return
  }
  if(draft.phase==="feedback"){renderExerciseFeedback(body,ex);return}
  if(ex.kind==="quiz")renderQuizExercise(body,ex);
@@ -633,14 +968,15 @@ function renderBreathExercise(body,ex){
  body.innerHTML=`<span class="round-count">REGULATION ${draft.round+1} / ${ex.rounds.length}</span><div class="round-card"><h2>${area}</h2><p>Wahrnehmen → ausatmen → Spannung bewusst reduzieren. Drei kontrollierte Wiederholungen.</p><div class="breath-orb">${rep<3?"AUSATMEN":"FERTIG"}</div><div class="rep-track">${[0,1,2].map(i=>`<i class="rep-dot ${i<rep?"done":""}"></i>`).join("")}</div><button class="primary full" data-action="breath-rep">${rep<3?"ATEMZUG + LÖSEN":"NÄCHSTER BEREICH →"}</button></div>`;
 }
 function renderResetExercise(body,ex){
- prog(ex,ex.situations.length);const sit=ex.situations[draft.round], ss=draft.substep||0;
- const labels=[
-  ["1 · RELEASE","Einmal lang ausatmen. Schultern/Hände lösen.","GELÖST"],
-  ["2 · INFO","Nur eine Information mitnehmen. Keine Selbstbewertung.","INFO KLAR"],
-  ["3 · NEXT","Eine kontrollierbare nächste Aktion wählen.","NÄCHSTE AKTION KLAR"]
- ];
- const x=labels[ss];
- body.innerHTML=`<span class="round-count">RESET ${draft.round+1} / ${ex.situations.length}</span><div class="round-card"><h2>${sit}</h2><span class="eyebrow">${x[0]}</span><p>${x[1]}</p>${ss===2?`<div class="cue">„${esc(activeCue())}“</div>`:""}<button class="primary full" data-action="reset-step">${x[2]} →</button></div>`;
+ const q=[
+ ["Fehlpass ins Zentrum. Gegner schaltet um.",["Ich spiele heute schlecht.","Pass kam zu spät.","Bloß keinen Fehler mehr."],1,["Trainer ansehen","Ball zurückerobern","Fehler analysieren"],1],
+ ["Du verlierst einen Zweikampf.",["Körperposition war zu offen.","Das darf nie passieren.","Der Gegner ist besser."],0,["Reklamieren","Nächsten Raum sichern","Darüber nachdenken"],1],
+ ["Du vergibst eine klare Chance.",["Ich treffe heute nichts.","Abschluss zu hektisch.","Jetzt erzwingen."],1,["Nächste Aufgabe aufnehmen","Kopf hängen lassen","Riskanter spielen"],0],
+ ["Ballverlust leitet Konter ein.",["Erster Kontakt zu weit.","Alle haben es gesehen.","Sofort wiedergutmachen."],0,["Defensive Aufgabe erkennen","Mitspieler beschuldigen","Ballverlust analysieren"],0],
+ ["Trainer kritisiert deine Entscheidung.",["Option vorher scannen.","Trainer ist gegen mich.","Nichts mehr riskieren."],0,["Raum/Gegner aufnehmen","Trainer ansehen","Szene wiederholen"],0]
+ ],r=draft.round||0,x=q[r%5],phase=draft.substep||0;prog(ex,5);
+ if(!phase)body.innerHTML=`<span class="round-count">RESET REP ${r+1} / 5</span><div class="round-card"><h2>${x[0]}</h2><p>Welche Information ist sachlich und hilft dir für die nächste Aktion?</p></div><div class="choices">${x[1].map((v,n)=>`<button class="choice" data-action="reset-info" data-value="${n}" data-correct="${x[2]}">${v}</button>`).join("")}</div>`;
+ else body.innerHTML=`<span class="round-count">INFO → CUE → AKTION</span><div class="round-card"><div class="cue">„${esc(activeCue())}“</div><h2>Was ist jetzt relevant?</h2></div><div class="choices">${x[3].map((v,n)=>`<button class="choice" data-action="reset-next" data-value="${n}" data-correct="${x[4]}">${v}</button>`).join("")}</div>`;
 }
 function renderControlExercise(body,ex){
  prog(ex,ex.items.length);const r=ex.items[draft.round],ctx=sportContext();
@@ -708,13 +1044,24 @@ function renderSport(body){
  const opts=["Fußball","Basketball","Handball","Volleyball","Hockey","Tennis / Racketsport","Laufen / Ausdauer","Radsport","Schwimmen","Kraftsport","Kampfsport","Turnen / Akrobatik","Andere"];
  setProgress(1,1);body.innerHTML=`<span class="eyebrow">SPORTART</span><h1 class="modal-title">Was ist dein Sport?</h1><p class="modal-sub">Die Kernübungen bleiben sportartenübergreifend.</p><div class="choices">${opts.map(x=>`<button class="choice" data-action="choose-sport" data-value="${x}">${x}</button>`).join("")}</div>`;
 }
+function renderPosition(body){
+ const opts=["Torwart","Innenverteidigung","Außenverteidigung","Zentrales Mittelfeld","Flügel","Sturm"];
+ setProgress(1,1);body.innerHTML=`<span class="eyebrow">FUSSBALL · POSITION</span><h1 class="modal-title">Welche Rolle spielst du überwiegend?</h1><p class="modal-sub">Damit Transferhinweise und spätere Situationen näher an deiner Aufgabe im Spiel liegen.</p><div class="choices">${opts.map(x=>`<button class="choice" data-action="choose-position" data-value="${x}">${x}</button>`).join("")}</div>`;
+}
+function renderRhythm(body){
+ if(!draft)draft={rhythm:{...state.weeklyRhythm}};
+ const days=[[1,"Montag"],[2,"Dienstag"],[3,"Mittwoch"],[4,"Donnerstag"],[5,"Freitag"],[6,"Samstag"],[0,"Sonntag"]];
+ setProgress(1,1);
+ body.innerHTML=`<span class="eyebrow">FUSSBALL · WOCHENRHYTHMUS</span><h1 class="modal-title">Wie sieht deine typische Woche aus?</h1><p class="modal-sub">Das ist nur der Standard. Im Daily Check kannst du den tatsächlichen Tag jederzeit überschreiben.</p><div class="rhythm-list">${days.map(([k,n])=>{const v=draft.rhythm[k]||"rest";return `<div class="profile-row"><label>${n}</label><strong>${dayTypeLabel(v)}</strong><button class="text-btn" data-action="cycle-rhythm" data-day="${k}">${v==="rest"?"→ Training":v==="training"?"→ Spiel":"→ Frei"}</button></div>`}).join("")}</div><div class="modal-footer"><button class="primary full" data-action="save-rhythm">WOCHENRHYTHMUS SPEICHERN</button></div>`;
+}
 function renderPriorities(body){
  if(!draft)draft={values:[...(state.profile.priorities||[])]};
  const opts=["Fokus","Selbstvertrauen","Druck","Fehler","Vorbereitung"];
  setProgress(1,1);body.innerHTML=`<span class="eyebrow">SCHWERPUNKTE</span><h1 class="modal-title">Woran willst du arbeiten?</h1><p class="modal-sub">Wähle bis zu drei Bereiche.</p><div class="pill-grid">${opts.map(x=>`<button class="pill ${draft.values.includes(x)?"selected":""}" data-action="toggle-priority" data-value="${x}">${x}</button>`).join("")}</div><div class="modal-footer"><button class="primary full" data-action="save-priorities">SPEICHERN</button></div>`;
 }
 function renderCue(body){
- setProgress(1,1);body.innerHTML=`<span class="eyebrow">PERSÖNLICHER CUE</span><h1 class="modal-title">Kurz. Funktional. Abrufbar.</h1><p class="modal-sub">Nur hier ist Text sinnvoll: dein Satz wird später in echten Wiederholungen verwendet.</p><input class="optional-input" id="cueInput" maxlength="60" value="${esc(activeCue())}"><div class="modal-footer"><button class="primary full" data-action="save-cue">SPEICHERN</button></div>`;
+ const b=currentBlock();
+ body.innerHTML=`<span class="eyebrow">DEIN FESTER CUE</span><h1 class="modal-title">${esc(b.cue)}</h1><p class="modal-sub">Dieser Cue gehört zu deinem aktuellen Ziel und bleibt in diesem Trainingsblock gleich.</p><div class="card"><small>ZIEL</small><p>${esc(b.goal)}</p></div><div class="modal-footer"><button class="primary full" data-action="close-modal">VERSTANDEN</button></div>`;
 }
 
 // Central event delegation: one listener for every button/action.
@@ -725,9 +1072,10 @@ document.addEventListener("click",e=>{
  if(a==="home"){go("today");return}
  if(a==="close-modal"){closeModal();return}
  if(a==="daily-check"){if(todayCheck())return toast("Daily Check für heute bereits erledigt");draft=null;openModal("daily");return}
+ if(a==="daily-daytype"){draft.data.dayType=b.dataset.value;draft.step++;renderModal();return}
  if(a==="daily-value"){
-   const keys=["body","energy","head","tension"],k=keys[draft.step];draft.data[k]=+b.dataset.value;draft.step++;
-   if(draft.step>=keys.length){const entry={day:todayKey(),date:new Date().toISOString(),...draft.data};state.checks.push(entry);save();ensureDailyPlan();toast("Check gespeichert");closeModal()}else renderModal();return
+   const keys=["sleep","body","mentalFatigue","stress","activation","focusState","motivation","confidenceState"],k=keys[draft.step-1];draft.data[k]=+b.dataset.value;draft.step++;
+   if(draft.step>=keys.length+1){const entry={day:todayKey(),date:new Date().toISOString(),activationScaleVersion:2,...draft.data};state.checks.push(entry);save();ensureDailyPlan();toast("Check gespeichert");closeModal()}else renderModal();return
  }
  if(a==="mark-sport"){
    const bl=currentBlock(),context=b.dataset.context;if(todayPrep())return toast("Heute ist bereits eine Sporteinheit offen");
@@ -736,10 +1084,10 @@ document.addEventListener("click",e=>{
  if(a==="start-reflection-exercise"){draft=null;openModal("exercise",{id:b.dataset.id,origin:"reflection",reflectionDate:b.dataset.ref});return}
  if(a==="start-reflection"){
    const context=b.dataset.context,prep=[...state.preparations].reverse().find(x=>x.day===todayKey()&&!x.reviewed&&x.context===context);if(!prep)return toast("Keine offene Einheit");
-   draft={step:0,context,prep,transferRating:null,pressure:null,issue:null,deepAnswer:null,savedDate:null};openModal("reflection");return
+   draft={step:0,context,prep,transferRating:null,pressure:null,physicalLoad:null,mentalLoad:null,issue:null,deepAnswer:null,savedDate:null};openModal("reflection");return
  }
  if(a==="review-goal"){draft.transferRating=+b.dataset.value;draft.step++;renderModal();return}
- if(a==="reflection-value"&&b.dataset.key==="pressure"){draft.pressure=+b.dataset.value;draft.step++;renderModal();return}
+ if(a==="reflection-value"){draft[b.dataset.key]=+b.dataset.value;draft.step++;renderModal();return}
  if(a==="review-issue"){
    draft.issue=b.dataset.value;const deep=draft.transferRating<3&&draft.issue!=="none"&&adaptiveQuestion(currentBlock().skill,draft.issue);if(!deep){saveReflectionFromDraft();draft.step++}else draft.step++;renderModal();return
  }
@@ -774,9 +1122,14 @@ document.addEventListener("click",e=>{
    if((draft.substep||0)<3){draft.substep=(draft.substep||0)+1;draft.reps++;renderModal()}
    else{draft.substep=0;draft.round++;if(draft.round>=ex.rounds.length)finishExercise(ex);else renderModal()}return
  }
- if(a==="reset-step"){
-   const ex=getExercise(modal.id);draft.substep=(draft.substep||0)+1;
-   if(draft.substep>=3){draft.substep=0;draft.round++;draft.reps++;if(draft.round>=ex.situations.length)return finishExercise(ex)}renderModal();return
+ if(a==="reset-info"){
+   draft.total=(draft.total||0)+1;if(Number(b.dataset.value)===Number(b.dataset.correct))draft.correct=(draft.correct||0)+1;
+   draft.substep=1;renderModal();return
+ }
+ if(a==="reset-next"){
+   const ex=getExercise(modal.id);draft.total=(draft.total||0)+1;if(Number(b.dataset.value)===Number(b.dataset.correct))draft.correct=(draft.correct||0)+1;
+   draft.reps=(draft.reps||0)+1;draft.round=(draft.round||0)+1;draft.substep=0;
+   if(draft.round>=5)return finishExercise(ex);renderModal();return
  }
  if(a==="control-answer"){
    const ex=getExercise(modal.id),r=ex.items[draft.round],answer=b.dataset.value==="true";draft.total++;if(answer===r[1])draft.correct++;
@@ -822,15 +1175,32 @@ document.addEventListener("click",e=>{
  if(a==="open-evidence"){draft=null;openModal("evidence");return}
  if(a==="show-journal"){draft=null;openModal("journal");return}
  if(a==="edit-sport"){draft=null;openModal("sport");return}
+ if(a==="edit-position"){draft=null;openModal("position");return}
+ if(a==="choose-position"){state.profile.position=b.dataset.value;save();closeModal();return}
  if(a==="choose-sport"){state.profile.sport=b.dataset.value;save();closeModal();return}
+ if(a==="edit-rhythm"){draft=null;openModal("rhythm");return}
+ if(a==="cycle-rhythm"){const k=b.dataset.day,cur=draft.rhythm[k]||"rest";draft.rhythm[k]=cur==="rest"?"training":cur==="training"?"match":"rest";renderModal();return}
+ if(a==="save-rhythm"){state.weeklyRhythm={...draft.rhythm};save();closeModal();toast("Wochenrhythmus gespeichert");return}
  if(a==="edit-priorities"){draft=null;openModal("priorities");return}
  if(a==="toggle-priority"){const v=b.dataset.value;if(draft.values.includes(v))draft.values=draft.values.filter(x=>x!==v);else if(draft.values.length<3)draft.values.push(v);else toast("Maximal drei Schwerpunkte");renderModal();return}
  if(a==="save-priorities"){state.profile.priorities=[...draft.values];save();closeModal();return}
  if(a==="edit-cue"){draft=null;openModal("cue");return}
  if(a==="save-cue"){const v=$("#cueInput").value.trim();if(!v)return toast("Kurzen Cue eingeben");currentBlock().cue=v.slice(0,60);save();renderAll();closeModal();return}
+ if(a==="import-data"){const f=$("#importFile");f.value="";f.click();return}
  if(a==="export-data"){
    const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a2=document.createElement("a");a2.href=url;a2.download="MentalEdge-Daten.json";a2.click();URL.revokeObjectURL(url);toast("Export erstellt");return
  }
+});
+function restoreState(raw){
+ if(!raw||typeof raw!=="object"||Array.isArray(raw))throw new Error("Ungültiges Backup");
+ const base=cloneDefaults(), out={...base,...raw,profile:{...base.profile,...(raw.profile||{})},weeklyRhythm:{...base.weeklyRhythm,...(raw.weeklyRhythm||{})}};
+ ["checks","preparations","reflections","sessions","customGoals","dailyPlans","blockHistory"].forEach(k=>{if(!Array.isArray(out[k]))out[k]=[]});
+ if(out.activeBlock!=null&&typeof out.activeBlock!=="object")out.activeBlock=null;
+ return out;
+}
+$("#importFile").addEventListener("change",async e=>{
+ const file=e.target.files?.[0];if(!file)return;
+ try{const raw=JSON.parse(await file.text());state=restoreState(raw);save();renderAll();toast("Backup wiederhergestellt")}catch(err){console.warn(err);toast("Backup konnte nicht gelesen werden")}
 });
 let lastTouchEnd=0;document.addEventListener("gesturestart",e=>e.preventDefault(),{passive:false});document.addEventListener("touchend",e=>{const now=Date.now();if(now-lastTouchEnd<=300)e.preventDefault();lastTouchEnd=now},{passive:false});
 renderAll();

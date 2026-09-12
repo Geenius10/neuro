@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0a0f14">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,7 +16,7 @@
 <div id="app">
   <header class="topbar">
     <button class="brand" data-action="home">
-      <span class="brandmark">ME</span>
+      <span class="brandmark"><img src="logo.svg" alt="" width="34" height="34"></span>
       <span><strong>MentalEdge</strong><small>MENTAL PERFORMANCE</small></span>
     </button>
     <button class="ghost-icon" data-action="open-evidence" aria-label="Wissenschaft">i</button>
@@ -77,8 +77,9 @@
     </div>
   </div>
 
+  <input id="importFile" type="file" accept="application/json,.json" hidden>
   <div class="toast hidden" id="toast"></div>
 </div>
 <script src="app.js"></script>
-</body>
+<script>["gesturestart","gesturechange","gestureend"].forEach(x=>document.addEventListener(x,e=>e.preventDefault(),{passive:false}));</script></body>
 </html>

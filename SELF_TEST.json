@@ -1,15 +1,46 @@
 {
   "js_syntax": true,
-  "v16_base": true,
-  "cue_fixed_in_block": true,
-  "no_cue_choice_handler": true,
-  "no_in_exercise_cue_edit": true,
-  "exercise_rotation": true,
-  "distinct_focus_mechanic": true,
-  "distinct_confidence_mechanic": true,
-  "distinct_composure_mechanic": true,
-  "distinct_preparation_mechanic": true,
-  "reset_keeps_sequence": true,
-  "zoom_meta": true,
-  "zoom_gesture_suppression": true
+  "dummy_tests_passed": 22,
+  "dummy_tests_failed": 0,
+  "exercise_count": 32,
+  "minimum_6_each_skill": true,
+  "counts_by_skill": {
+    "focus": 6,
+    "confidence": 6,
+    "composure": 6,
+    "reset": 7,
+    "preparation": 7
+  },
+  "all_curriculum_exercises_exist": true,
+  "directional_activation_5_point": true,
+  "low_activation_not_auto_calmed": true,
+  "high_activation_with_bad_focus_regulates": true,
+  "high_activation_with_good_focus_not_auto_calmed": true,
+  "legacy_activation_compatible": true,
+  "cross_app_referrals": [
+    "EYE",
+    "NEURO",
+    "MIND"
+  ],
+  "trend_windows": [
+    7,
+    14,
+    28
+  ],
+  "block_progression_dummy_test": true,
+  "transfer_gap_dummy_test": true,
+  "every_exercise_intro_and_renderer_tested": true,
+  "every_exercise_feedback_screen_tested": true,
+  "rendered_action_count": 51,
+  "no_unhandled_rendered_actions": true,
+  "backup_export": true,
+  "backup_restore": true,
+  "zoom_disabled": true,
+  "manifest_valid": true,
+  "required_assets": true,
+  "icon_192": true,
+  "icon_512": true,
+  "service_worker_cache_updated": true,
+  "real_browser_e2e": false,
+  "real_browser_e2e_reason": "Lokale/file Navigation wird in dieser Ausführungsumgebung durch den Browser-Administrator blockiert."
 }
